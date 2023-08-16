@@ -1,7 +1,9 @@
 (in-package "ACL2")
 
 (include-book "std/testing/assert-bang" :dir :system)
+(include-book "std/testing/must-succeed" :dir :system)
 (include-book "centaur/bitops/part-install" :dir :system)
+(include-book "util")
 
 ;; This describes setting some bit range in a value (described by the
 ;; cdr) to another value (the car)
@@ -40,3 +42,38 @@
                       (#b0011   :low 1 :high 4)
                       (#b00     :low 0 :width 2))
          #b100100)))
+
+;; See the concat-bits macro below
+(defun concat-bits-fn (specs acc-width acc-expr)
+  (if (endp specs)
+      acc-expr
+    (b* ((spec-val (caar specs))
+         (spec-alist (kwd-list-to-alist (cdar specs)))
+         ((assocs (width :width)) spec-alist))
+      (concat-bits-fn (cdr specs)
+                      `(+ ,width ,acc-width)
+                      `(bitops::logapp ,acc-width ,acc-expr (bitops::loghead ,width ,spec-val))))))
+
+;; (concat-bits (x :width 4) ((+ 1 2) :width 1) (3 :width (/ 4 2)))
+;; Each spec is a list (<val> :width <width-val>)
+;; Both <val> and <width-val> can be expressions
+;; Specs are listed in order from MSB to LSB. So,
+;; (concat-bits (x :width 2) (y :width 3)) will produce
+;; a value V consisting of the 3 low bits of y in V's 3 low bits
+;; and the 2 low bits of x in V's bits 3 and 4.
+(defmacro concat-bits (&rest specs)
+  (concat-bits-fn (reverse specs) 0 0))
+
+(local
+ (assert!
+  (equal (concat-bits (#b10 :width 2) (#b11 :width 1) (#b1 :width 3))
+         #b101001)))
+
+(local (include-book "centaur/bitops/ihsext-basics" :dir :system))
+(must-succeed
+  (thm (implies (and (integerp a)
+                     (integerp b)
+                     (>= b 0)
+                     (posp w-b))
+                (equal (concat-bits (a :width 0) (b :width w-b))
+                       (bitops::loghead w-b b)))))

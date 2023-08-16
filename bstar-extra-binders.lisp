@@ -2,37 +2,41 @@
 
 (include-book "std/testing/assert-bang" :dir :system)
 (include-book "centaur/bitops/part-select" :dir :system)
+(include-book "util")
 
 ;; Take a "bits-spec" and turn it into a binding
 ;; A bits-spec is a list consisting of a symbol followed by keyword arguments
 ;; that part-select understands.
-
-;; oh, how I would have loved to use std::extract-keywords
-(defun kwd-list-to-alist (kwd-list)
-  (cond ((endp (cdr kwd-list)) nil)
-        ((keywordp (car kwd-list))
-         (cons (cons (car kwd-list) (cadr kwd-list))
-               (kwd-list-to-alist (cddr kwd-list))))
-        (t (kwd-list-to-alist (cdr kwd-list)))))
-
 (defun calculate-bits-spec-width (bits-spec)
   (b* ((kwd-alist (kwd-list-to-alist (cdr bits-spec)))
        ((assocs (low :low) (high :high) (width :width)) kwd-alist))
     (cond (width width)
-          ((and (natp low) (natp high)) (1+ (- high low)))
+          ((and (natp low) (natp high))
+           (1+ (if (<= low high)
+                   (- high low)
+                 (- low high))))
           (t nil))))
 
 (defun bits-spec-to-binder (bits-spec bound-var)
-  (let ((var-name (car bits-spec))
-        (part-select-args (cdr bits-spec))
-        (bits-spec-width (calculate-bits-spec-width bits-spec)))
-    (list 
+  (b* ((var-name (car bits-spec))
+       (part-select-args (cdr bits-spec))
+       (part-select-args-alist (kwd-list-to-alist part-select-args))
+       ((assocs (low :low) (high :high)) part-select-args-alist)
+       (bits-spec-width (calculate-bits-spec-width bits-spec))
+       (part-select-expr `(bitops::part-select ,bound-var ,@part-select-args)))
+    (list
      (if bits-spec-width
          ;; If we can determine the bitwidth of the result, generate a
          ;; `the` form to assist in reasoning about this value.
          `(the (unsigned-byte ,(calculate-bits-spec-width bits-spec)) ,var-name)
        var-name)
-     `(bitops::part-select ,bound-var ,@part-select-args))))
+     ;; minor optimization: don't generate if statement if we can tell
+     ;; it's not needed
+     (if (and low high (not (and (natp low) (natp high) (<= low high))))
+         `(if (> ,low ,high)
+              (bitops::logrev (1+ (- ,low ,high)) (bitops::part-select ,bound-var :low ,high :high ,low))
+            ,part-select-expr)
+       part-select-expr))))
 
 (defun bits-specs-to-binders (bits-specs bound-var)
   (and (consp bits-specs)
@@ -64,8 +68,12 @@
                      (ds2 :low 0 :high 15)
                      (cs2 :low 16 :high 31)
                      (bs2 :low 32 :high 47)
-                     (as2 :low 48 :high 63))
+                     (as2 :low 48 :high 63)
+                     ;; select in reverse
+                     (ab-rev :low 23 :high 8))
                #ux_AAAA_BBBB_CCCC_DDDD))
-           (list ds cs bs as ds2 cs2 bs2 as2))
+           (list ds cs bs as ds2 cs2 bs2 as2 ab-rev))
          '(#ux_DDDD #ux_CCCC #ux_BBBB #ux_AAAA
-                    #ux_DDDD #ux_CCCC #ux_BBBB #ux_AAAA))))
+                    #ux_DDDD #ux_CCCC #ux_BBBB #ux_AAAA
+                    ;; 0xDDCC reversed is 0xBB33
+                    #ux_BB33))))
