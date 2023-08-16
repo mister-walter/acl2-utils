@@ -1,0 +1,7 @@
+(ld "centaur/bitops/package.lsp" :dir :system)
+
+#+acl2-par
+(set-waterfall-parallelism nil)
+
+#+acl2-par
+(set-parallel-execution nil)
