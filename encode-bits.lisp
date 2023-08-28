@@ -4,6 +4,7 @@
 (include-book "std/testing/must-succeed" :dir :system)
 (include-book "centaur/bitops/part-install" :dir :system)
 (include-book "util")
+(include-book "bits-patbind")
 
 ;; This describes setting some bit range in a value (described by the
 ;; cdr) to another value (the car)
@@ -43,16 +44,29 @@
                       (#b00     :low 0 :width 2))
          #b100100)))
 
+(defun concat-bits-spec-to-val (spec)
+  (b* ((spec-val (car spec))
+       (spec-alist (kwd-list-to-alist (cdr spec)))
+       ((assocs (low :low) (high :high) (width :width)) spec-alist)
+       (low (if (and (not low) (not high) width) 0 low))
+       (new-spec `(,@(and low `(:low ,low)) ,@(and high `(:high ,high)) ,@(and width `(:width ,width)))))
+    (part-select-spec-to-part-select new-spec spec-val)))
+
+(defun concat-bits-spec-width (spec)
+  (b* ((spec-alist (kwd-list-to-alist (cdr spec)))
+       ((assocs (low :low) (high :high) (width :width)) spec-alist))
+    (cond (width width)
+          ((and (natp low) (natp high)) (1+ (abs (- high low))))
+          ((and low high) `(1+ (abs (- ,high ,low))))
+          (t (er hard 'concat-bits "You must provide either :width (and optionally :low) or both :low and :high to concat-bits")))))
+
 ;; See the concat-bits macro below
 (defun concat-bits-fn (specs acc-width acc-expr)
   (if (endp specs)
       acc-expr
-    (b* ((spec-val (caar specs))
-         (spec-alist (kwd-list-to-alist (cdar specs)))
-         ((assocs (width :width)) spec-alist))
-      (concat-bits-fn (cdr specs)
-                      `(+ ,width ,acc-width)
-                      `(bitops::logapp ,acc-width ,acc-expr (bitops::loghead ,width ,spec-val))))))
+    (concat-bits-fn (cdr specs)
+                    `(+ ,(concat-bits-spec-width (car specs)) ,acc-width)
+                    `(bitops::logapp ,acc-width ,acc-expr ,(concat-bits-spec-to-val (car specs))))))
 
 ;; (concat-bits (x :width 4) ((+ 1 2) :width 1) (3 :width (/ 4 2)))
 ;; Each spec is a list (<val> :width <width-val>)

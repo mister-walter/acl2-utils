@@ -7,36 +7,47 @@
 ;; Take a "bits-spec" and turn it into a binding
 ;; A bits-spec is a list consisting of a symbol followed by keyword arguments
 ;; that part-select understands.
+;; We call the part of the list after the symbol the "part-select spec"
+
+;; Calculate the constant width of a bit-spec, if possible
 (defun calculate-bits-spec-width (bits-spec)
   (b* ((kwd-alist (kwd-list-to-alist (cdr bits-spec)))
        ((assocs (low :low) (high :high) (width :width)) kwd-alist))
-    (cond (width width)
+    (cond ((and width (natp width)) width)
           ((and (natp low) (natp high))
            (1+ (if (<= low high)
                    (- high low)
                  (- low high))))
           (t nil))))
 
+;; Turn a bit-spec into a part-select (or logrev of a part-select) as appropriate
+(defun part-select-spec-to-part-select (part-select-spec val)
+  (b* ((part-select-spec-alist (kwd-list-to-alist part-select-spec))
+       ((assocs (low :low) (high :high)) part-select-spec-alist)
+       (part-select-expr `(bitops::part-select ,val ,@part-select-spec)))
+    ;; minor optimization: don't generate if statement if we can tell
+    ;; it's not needed
+    (if (not (and low high))
+        part-select-expr
+      (let ((rev-part-select-expr `(bitops::logrev (1+ (- ,low ,high)) (bitops::part-select ,val :low ,high :high ,low))))
+        (cond
+         ((equal low 0) part-select-expr)
+         ((not (and (natp low) (natp high)))
+          `(if (> ,low ,high) ,rev-part-select-expr ,part-select-expr))
+         ((> low high) rev-part-select-expr)
+         (t part-select-expr))))))
+
+
 (defun bits-spec-to-binder (bits-spec bound-var)
   (b* ((var-name (car bits-spec))
-       (part-select-args (cdr bits-spec))
-       (part-select-args-alist (kwd-list-to-alist part-select-args))
-       ((assocs (low :low) (high :high)) part-select-args-alist)
-       (bits-spec-width (calculate-bits-spec-width bits-spec))
-       (part-select-expr `(bitops::part-select ,bound-var ,@part-select-args)))
+       (bits-spec-width (calculate-bits-spec-width bits-spec)))
     (list
      (if bits-spec-width
          ;; If we can determine the bitwidth of the result, generate a
          ;; `the` form to assist in reasoning about this value.
-         `(the (unsigned-byte ,(calculate-bits-spec-width bits-spec)) ,var-name)
+         `(the (unsigned-byte ,bits-spec-width) ,var-name)
        var-name)
-     ;; minor optimization: don't generate if statement if we can tell
-     ;; it's not needed
-     (if (and low high (not (and (natp low) (natp high) (<= low high))))
-         `(if (> ,low ,high)
-              (bitops::logrev (1+ (- ,low ,high)) (bitops::part-select ,bound-var :low ,high :high ,low))
-            ,part-select-expr)
-       part-select-expr))))
+     (part-select-spec-to-part-select (cdr bits-spec) bound-var))))
 
 (defun bits-specs-to-binders (bits-specs bound-var)
   (and (consp bits-specs)
