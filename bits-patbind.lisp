@@ -21,6 +21,8 @@
           (t nil))))
 
 ;; Turn a bit-spec into a part-select (or logrev of a part-select) as appropriate
+;; Disabling the ability to write out-of-order :high and :low for now
+#|
 (defun part-select-spec-to-part-select (part-select-spec val)
   (b* ((part-select-spec-alist (kwd-list-to-alist part-select-spec))
        ((assocs (low :low) (high :high)) part-select-spec-alist)
@@ -36,7 +38,10 @@
           `(if (> ,low ,high) ,rev-part-select-expr ,part-select-expr))
          ((> low high) rev-part-select-expr)
          (t part-select-expr))))))
+|#
 
+(defun part-select-spec-to-part-select (part-select-spec val)
+  `(bitops::part-select ,val ,@part-select-spec))
 
 (defun bits-spec-to-binder (bits-spec bound-var)
   (b* ((var-name (car bits-spec))
@@ -79,12 +84,12 @@
                      (ds2 :low 0 :high 15)
                      (cs2 :low 16 :high 31)
                      (bs2 :low 32 :high 47)
-                     (as2 :low 48 :high 63)
+                     (as2 :low 48 :high 63))
                      ;; select in reverse
-                     (ab-rev :low 23 :high 8))
+                     ;;(ab-rev :low 23 :high 8))
                #ux_AAAA_BBBB_CCCC_DDDD))
-           (list ds cs bs as ds2 cs2 bs2 as2 ab-rev))
+           (list ds cs bs as ds2 cs2 bs2 as2));; ab-rev))
          '(#ux_DDDD #ux_CCCC #ux_BBBB #ux_AAAA
-                    #ux_DDDD #ux_CCCC #ux_BBBB #ux_AAAA
+                    #ux_DDDD #ux_CCCC #ux_BBBB #ux_AAAA))))
                     ;; 0xDDCC reversed is 0xBB33
-                    #ux_BB33))))
+                    ;;#ux_BB33))))
